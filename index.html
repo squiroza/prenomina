@@ -13,7 +13,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root{--azul:#0a1a2f;--azul2:#1e6bb8;--gris:#8a97a8;--fondo:#edf1f6;--card:#fff;--txt:#1e293b;--sub:#64748b;--linea:#dbe2ea;
---A:#22c55e;--A24:#15803d;--TE24:#1e3a8a;--D:#94a3b8;--F:#dc2626;--R:#d97706;--TE:#2563eb;--V:#7c3aed;--I:#db2777;--P:#0d9488}
+--A:#22c55e;--A24:#15803d;--TE24:#1e3a8a;--D:#94a3b8;--F:#dc2626;--FJ:#9a3412;--R:#d97706;--TE:#2563eb;--V:#7c3aed;--I:#db2777;--P:#0d9488}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--txt);background:var(--fondo)}
 body{display:flex;flex-direction:column;padding-bottom:env(safe-area-inset-bottom)}
@@ -72,7 +72,7 @@ table.grid{border-collapse:separate;border-spacing:0;font-size:13px}
 .nom i{font-style:normal;font-size:11px;color:var(--sub)}
 .celda{min-width:42px;height:40px;cursor:pointer;font-weight:800;user-select:none;font-size:13px}.celda sub,.paleta sub{font-size:9px;font-weight:700;vertical-align:baseline;margin-left:1px}
 .tot{font-size:12px;padding:0 6px;background:#f8fafc;font-weight:700}
-.c-A12{background:var(--A);color:#fff}.c-A24{background:var(--A24);color:#fff}.c-TE24{background:var(--TE24);color:#fff}.c-TE12{background:var(--TE);color:#fff}.c-D{background:var(--D);color:#fff}.c-F{background:var(--F);color:#fff}
+.c-A12{background:var(--A);color:#fff}.c-A24{background:var(--A24);color:#fff}.c-TE24{background:var(--TE24);color:#fff}.c-TE12{background:var(--TE);color:#fff}.c-D{background:var(--D);color:#fff}.c-F{background:var(--F);color:#fff}.c-FJ{background:var(--FJ);color:#fff}
 .c-R{background:var(--R);color:#fff}.c-V{background:var(--V);color:#fff}
 .c-I{background:var(--I);color:#fff}.c-P{background:var(--P);color:#fff}
 .paleta{position:sticky;bottom:0;background:#fff;border-top:1px solid var(--linea);padding:8px 10px;display:flex;gap:6px;overflow-x:auto}
@@ -361,7 +361,8 @@ const CLAVES = [
   {c:'A24', n:'Asistencia 24 h', s:'Asist 24h', h:24},
   {c:'A12', n:'Asistencia 12 h', s:'Asist 12h', h:12},
   {c:'D', n:'Descanso'},
-  {c:'F', n:'Falta'},
+  {c:'F', n:'Falta (injustificada)', s:'Falta'},
+  {c:'FJ', n:'Falta justificada', s:'Falta just.'},
   {c:'R', n:'Retardo (horas según su turno)', s:'Retardo', h:'turno'},
   {c:'TE24',n:'Cubre / extra 24 h', s:'Cubre 24h', h:24},
   {c:'TE12',n:'Cubre / extra 12 h', s:'Cubre 12h', h:12},
@@ -795,14 +796,14 @@ function pintarResumen(){
   let h='<table class="sumTabla"><thead><tr><th>Elemento</th>'+CLAVES.map(k=>`<th>${etiqueta(k.c)}</th>`).join('')+'<th>Hrs</th></tr></thead><tbody>'; let serv=null;
   rows.forEach(({e,t})=>{
     if(e.servicio!==serv){ serv=e.servicio; h+=`<tr><td colspan="${CLAVES.length+2}" style="background:#f1f5f9;font-weight:700">${esc(serv||'Sin servicio')}</td></tr>`; }
-    h+=`<tr><td>${esc(e.nombre)}<br><span class="ayuda">${esc(e.turno)}</span></td>`+CLAVES.map(k=>`<td style="${t[k.c]&&k.c==='F'?'color:var(--F);font-weight:700':''}">${t[k.c]||''}</td>`).join('')+`<td><b>${t.horas}</b></td></tr>`;
+    h+=`<tr><td>${esc(e.nombre)}<br><span class="ayuda">${esc(e.turno)}</span></td>`+CLAVES.map(k=>`<td style="${t[k.c]&&(k.c==='F'||k.c==='FJ')?'color:var(--F);font-weight:700':''}">${t[k.c]||''}</td>`).join('')+`<td><b>${t.horas}</b></td></tr>`;
   });
   resumen.innerHTML=h+'</tbody></table>';
 }
 function copiarResumen(){
   const {dias}=rango(); let t=`*PRENÓMINA ${cfg.empresa}*\n${txtRango()}\n`; let serv=null;
   filasResumen(dias).forEach(({e,t:c})=>{ if(e.servicio!==serv){serv=e.servicio;t+=`\n*${serv||'Sin servicio'}*\n`;}
-    t+=`• ${e.nombre} (${e.turno}): ${c.horas} h (${c.A24?c.A24+'×24h ':''}${c.A12?c.A12+'×12h':''})${c.F?`, ${c.F} faltas`:''}${c.TE24?`, cubrió ${c.TE24}×24h`:''}${c.TE12?`, cubrió ${c.TE12}×12h`:''}${c.R?`, ${c.R} retardos`:''}${c.V?`, ${c.V} vac.`:''}${c.I?`, ${c.I} incap.`:''}${c.P?`, ${c.P} perm.`:''}\n`; });
+    t+=`• ${e.nombre} (${e.turno}): ${c.horas} h (${c.A24?c.A24+'×24h ':''}${c.A12?c.A12+'×12h':''})${c.F?`, ${c.F} faltas`:''}${c.FJ?`, ${c.FJ} faltas just.`:''}${c.TE24?`, cubrió ${c.TE24}×24h`:''}${c.TE12?`, cubrió ${c.TE12}×12h`:''}${c.R?`, ${c.R} retardos`:''}${c.V?`, ${c.V} vac.`:''}${c.I?`, ${c.I} incap.`:''}${c.P?`, ${c.P} perm.`:''}\n`; });
   navigator.clipboard.writeText(t).then(()=>toast('✔ Copiado, pégalo en WhatsApp')).catch(()=>toast('No se pudo copiar'));
 }
 
