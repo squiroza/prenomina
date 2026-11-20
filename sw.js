@@ -1,4 +1,4 @@
-const CACHE = 'prenomina-v6';
+const CACHE = 'prenomina-v7';
 const FILES = [
   './', './index.html', './manifest.json', './icon-192.png', './icon-512.png',
   'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',

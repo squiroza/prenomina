@@ -50,6 +50,15 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none;display
 .sug:active,.sug.sel{background:#e0ecfa}
 .sug small{display:block;color:var(--sub);font-size:12px}
 .sug mark{background:#fde68a;color:inherit;border-radius:3px;padding:0 1px}
+.imp-serv{font-weight:700;background:#f1f5f9;padding:6px 8px;border-radius:8px;margin-top:8px;display:flex;align-items:center;gap:8px}
+.imp-serv input{width:auto}
+.imp-fila{display:flex;align-items:center;gap:8px;padding:6px 4px;border-bottom:1px solid var(--linea)}
+.imp-fila input[type=checkbox]{width:auto;flex:none;transform:scale(1.2)}
+.imp-fila div{flex:1;min-width:0;font-size:14px}
+.imp-fila small{display:block;color:var(--sub);font-size:12px}
+.imp-fila select{width:110px;flex:none;padding:6px;font-size:13px}
+.vinc{display:inline-flex;align-items:center;gap:6px;background:#e0ecfa;color:var(--azul2);font-weight:700;border-radius:20px;padding:4px 10px;font-size:12px}
+.vinc button{border:0;background:none;color:var(--sub);font-size:13px;padding:0}
 .sug.cab{font-size:11px;font-weight:700;color:var(--sub);background:#f8fafc;padding:6px 12px}
 .tablaWrap{overflow:auto;background:#fff;border-radius:12px;box-shadow:0 1px 2px rgba(0,0,0,.06);max-height:calc(100vh - 330px)}
 table.grid{border-collapse:separate;border-spacing:0;font-size:13px}
@@ -158,7 +167,7 @@ header h1 .marca{font-size:11px;font-weight:800;letter-spacing:.18em;color:#7fb6
   <div class="card">
     <div class="fila">
       <button class="btn" onclick="abrirElemento()">＋ Nuevo elemento</button>
-      <button class="btn sec" onclick="abrir('mPegar')">📋 Pegar desde Excel</button>
+      <button class="btn sec" onclick="abrirImportar()">📥 Importar de Empleados</button>
     </div>
     <input id="buscarElem" type="search" placeholder="🔍 Buscar… (nombre, servicio o turno)" autocomplete="off" autocorrect="off" spellcheck="false" oninput="pintarElementos()" style="margin-top:10px">
   </div>
@@ -243,11 +252,12 @@ header h1 .marca{font-size:11px;font-weight:800;letter-spacing:.18em;color:#7fb6
 <div class="modal" id="mElem" onclick="if(event.target===this)cerrar('mElem')">
   <div class="hoja">
     <h3 id="mElemTit">Nuevo elemento</h3>
-    <label>Nombre completo</label>
+    <label>Empleado (búscalo en tu lista de Empleados)</label>
     <div class="buscador" style="display:block">
-      <input id="eNombre" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="Escribe el nombre…">
+      <input id="eNombre" type="search" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="🔍 Escribe el nombre o número… (ej. sam)">
       <div class="sugerencias" id="sugNombre"></div>
     </div>
+    <div id="eVinculo" class="ayuda" style="margin-top:6px"></div>
     <label>Servicio</label><input id="eServicio" list="dlServ" placeholder="Ej. Fortaleza">
     <label>Turno</label><input id="eTurno" list="dlTurno" placeholder="Ej. 24x24 A">
     <label><input type="checkbox" id="eActivo" style="width:auto"> Activo (aparece en la asistencia)</label>
@@ -264,15 +274,20 @@ header h1 .marca{font-size:11px;font-weight:800;letter-spacing:.18em;color:#7fb6
   <option value="24x24 A"><option value="24x24 B"><option value="24x24"><option value="12x12 D"><option value="12x12 N"><option value="12x24"><option value="12x36">
 </datalist>
 
-<!-- Modal pegar -->
-<div class="modal" id="mPegar" onclick="if(event.target===this)cerrar('mPegar')">
+<!-- Modal importar de empleados -->
+<div class="modal" id="mImp" onclick="if(event.target===this)cerrar('mImp')">
   <div class="hoja">
-    <h3>Pegar lista desde Excel</h3>
-    <p class="ayuda">Copia en Excel las columnas <b>Nombre · Servicio · Turno</b> (sin encabezados) y pégalas aquí. Una fila por elemento.</p>
-    <textarea id="txtPegar" rows="8" placeholder="Samuel Quiroz Angeles	Fortaleza	24x24 A"></textarea>
-    <div class="fila" style="margin-top:12px">
-      <button class="btn" onclick="importarPegado()">Agregar</button>
-      <button class="btn sec" onclick="cerrar('mPegar')">Cancelar</button>
+    <h3>Importar de Empleados</h3>
+    <p class="ayuda" style="margin:0 0 8px">Empleados activos que aún no están en la prenómina. Márcalos y elige su turno (puedes cambiarlo después).</p>
+    <input id="impBuscar" type="search" placeholder="🔍 Filtrar… (nombre, número o servicio)" autocomplete="off" oninput="pintarImportar()">
+    <div class="fila" style="margin-top:8px">
+      <select id="impTurnoTodos" style="flex:1"><option value="">Turno para los marcados…</option></select>
+      <button class="btn sec mini" onclick="turnoAMarcados()">Aplicar</button>
+    </div>
+    <div id="impLista" style="margin-top:8px"></div>
+    <div class="fila" style="margin-top:12px;position:sticky;bottom:0;background:#fff;padding-top:8px">
+      <button class="btn" id="impBtn" onclick="importarEmpleados()">Importar</button>
+      <button class="btn sec" onclick="cerrar('mImp')">Cancelar</button>
     </div>
   </div>
 </div>
@@ -359,7 +374,7 @@ const MESES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov'
 const K_CACHE='pn_cache', K_COLA='pn_cola', K_SB='pn_sb';
 
 /* ================= ESTADO ================= */
-let sb=null, usuario=null, perfil=null, usuarios=[];
+let sb=null, usuario=null, perfil=null, usuarios=[], empleados=[];
 let elementos=[];          // [{id,nombre,servicio,turno,activo}]
 let asis={};               // asis[elemento_id][YYYY-MM-DD] = clave
 let cfg={empresa:'INTERNACIONAL SECURE TEK', refA:fmt(new Date())};
@@ -457,12 +472,18 @@ async function despuesDeEntrar(){
 }
 
 /* ================= SUPABASE: LECTURA ================= */
+async function cargarEmpleados(){
+  if(!sb||!usuario) return;
+  const {data,error}=await sb.rpc('pn_empleados'); if(!error&&data) empleados=data;
+}
 async function sincronizarTodo(){
   if(!sb||!usuario) return;
   await subirCola();
+  try{ await sb.rpc('pn_sincronizar_empleados'); }catch(e){} // nombres y bajas desde Empleados
+  await cargarEmpleados();
   try{
     const [el,cf]=await Promise.all([
-      sb.from('pn_elementos').select('id,nombre,servicio,turno,activo').order('nombre'),
+      sb.from('pn_elementos').select('id,nombre,servicio,turno,activo,empleado_id').order('nombre'),
       sb.from('pn_config').select('empresa,ref_a').eq('id',1).maybeSingle()
     ]);
     if(el.error) throw el.error;
@@ -635,16 +656,85 @@ sugBuscar.addEventListener('click',ev=>{
 function limpiarBusqueda(){ buscar.value=''; buscarX.style.display='none'; sugBuscar.classList.remove('on'); pintarGrid(); buscar.focus(); }
 document.addEventListener('click',ev=>{ if(!ev.target.closest('.buscador')) document.querySelectorAll('.sugerencias').forEach(x=>x.classList.remove('on')); });
 
-// Al dar de alta: muestra elementos con nombre parecido para no duplicarlos
+// Al dar de alta: busca en la tabla Empleados (la misma de tu checador)
+let empSel=null;
+function pintarVinculo(){
+  eVinculo.innerHTML = empSel
+    ? `<span class="vinc">🔗 Empleado${empSel.numero?' #'+esc(empSel.numero):''}${empSel.puesto?' · '+esc(empSel.puesto):''}${editId?'':' <button onclick="quitarEmpleado()">✕</button>'}</span>`
+    : (editId ? '<span class="ayuda">⚠ Este elemento no está vinculado a Empleados.</span>' : '');
+  eNombre.readOnly=!!empSel;
+}
+function quitarEmpleado(){ empSel=null; eNombre.value=''; pintarVinculo(); eNombre.focus(); }
 eNombre.addEventListener('input',()=>{
+  if(empSel) return;
   const q=eNombre.value.trim();
-  const ls=q.length<2?[]:elementos.filter(e=>e.id!==editId && coincide(e.nombre,q));
-  if(!ls.length){ sugNombre.classList.remove('on'); return; }
-  sugNombre.innerHTML=`<div class="sug cab">⚠ Ya existen con ese nombre (toca para abrirlo):</div>`+ls.slice(0,8).map(e=>`<button class="sug" data-id="${e.id}">${resaltar(e.nombre,q)}<small>${esc(e.servicio)} · ${esc(e.turno)}${e.activo?'':' · INACTIVO'}</small></button>`).join('');
+  if(q.length<2){ sugNombre.classList.remove('on'); return; }
+  const ls=empleados.filter(e=>coincide((e.nombre||'')+' '+(e.numero||''),q))
+    .sort((a,b)=>(a.elemento_id?1:0)-(b.elemento_id?1:0)||(a.nombre||'').localeCompare(b.nombre||''));
+  sugNombre.innerHTML = ls.length
+    ? `<div class="sug cab">${ls.length} en Empleados</div>`+ls.slice(0,30).map(e=>`<button class="sug" data-emp="${e.emp_id}">${resaltar(e.nombre||'',q)}<small>${e.numero?'#'+esc(e.numero)+' · ':''}${esc(e.servicio||'Sin servicio')}${e.activo?'':' · BAJA'}${e.elemento_id?' · <b style="color:var(--A24)">✓ ya está en prenómina</b>':''}</small></button>`).join('')
+    : `<div class="sug cab">No está en Empleados. ${esAdmin()?'Dalo de alta primero en tu sistema de asistencia.':'Pide al administrador que lo dé de alta.'}</div>`;
   sugNombre.classList.add('on');
 });
 sugNombre.addEventListener('mousedown',ev=>ev.preventDefault());
-sugNombre.addEventListener('click',ev=>{ const b=ev.target.closest('.sug[data-id]'); if(!b) return; sugNombre.classList.remove('on'); abrirElemento(b.dataset.id); });
+sugNombre.addEventListener('click',ev=>{
+  const b=ev.target.closest('.sug[data-emp]'); if(!b) return;
+  const emp=empleados.find(x=>x.emp_id===b.dataset.emp); if(!emp) return;
+  sugNombre.classList.remove('on');
+  if(emp.elemento_id){
+    if(elementos.some(x=>x.id===emp.elemento_id)){ abrirElemento(emp.elemento_id); toast('Ya estaba en la prenómina; aquí lo puedes editar'); }
+    else toast('Ya está en la prenómina en un servicio que no tienes asignado');
+    return;
+  }
+  empSel=emp; eNombre.value=emp.nombre; if(!eServicio.value) eServicio.value=emp.servicio||'';
+  pintarVinculo(); eTurno.focus();
+});
+
+/* ---- Importar varios de Empleados ---- */
+const TURNOS=['24x24 A','24x24 B','24x24','12x12 D','12x12 N','12x24','12x36'];
+let impTurnos={};
+async function abrirImportar(){
+  if(!enLinea()) return;
+  await cargarEmpleados(); impTurnos={}; impBuscar.value='';
+  impTurnoTodos.innerHTML='<option value="">Turno para los marcados…</option>'+TURNOS.map(t=>`<option>${t}</option>`).join('');
+  pintarImportar(); abrir('mImp');
+}
+function disponibles(){
+  const mis=perfil?.servicios||[];
+  return empleados.filter(e=>!e.elemento_id && e.activo && (esAdmin()||mis.includes(e.servicio)));
+}
+function pintarImportar(){
+  const q=impBuscar.value||''; const marc=new Set([...impLista.querySelectorAll('input[data-emp]:checked')].map(c=>c.dataset.emp));
+  const ls=disponibles().filter(e=>!q||coincide((e.nombre||'')+' '+(e.numero||'')+' '+(e.servicio||''),q))
+    .sort((a,b)=>(a.servicio||'').localeCompare(b.servicio||'')||(a.nombre||'').localeCompare(b.nombre||''));
+  if(!ls.length){ impLista.innerHTML=`<div class="vacio">${disponibles().length?'Sin coincidencias.':'Todos tus empleados activos ya están en la prenómina. 👍'}</div>`; return; }
+  let h='', serv=null;
+  ls.forEach(e=>{
+    if(e.servicio!==serv){ serv=e.servicio; h+=`<label class="imp-serv"><input type="checkbox" data-serv="${esc(serv)}"> ${esc(serv||'Sin servicio')}</label>`; }
+    h+=`<div class="imp-fila"><input type="checkbox" data-emp="${e.emp_id}" data-s="${esc(e.servicio)}" ${marc.has(e.emp_id)?'checked':''}><div>${resaltar(e.nombre||'',q)}<small>${e.numero?'#'+esc(e.numero)+' · ':''}${esc(e.puesto||'')}</small></div>
+      <select data-turno="${e.emp_id}"><option value="">Turno…</option>${TURNOS.map(t=>`<option ${impTurnos[e.emp_id]===t?'selected':''}>${t}</option>`).join('')}</select></div>`;
+  });
+  impLista.innerHTML=h;
+  impLista.querySelectorAll('input[data-serv]').forEach(c=>c.onchange=()=>impLista.querySelectorAll(`input[data-s="${CSS.escape(c.dataset.serv)}"]`).forEach(x=>x.checked=c.checked));
+  impLista.querySelectorAll('select[data-turno]').forEach(sl=>sl.onchange=()=>{ impTurnos[sl.dataset.turno]=sl.value; const c=impLista.querySelector(`input[data-emp="${sl.dataset.turno}"]`); if(sl.value&&c) c.checked=true; });
+}
+function turnoAMarcados(){
+  const t=impTurnoTodos.value; if(!t){ toast('Elige un turno'); return; }
+  impLista.querySelectorAll('input[data-emp]:checked').forEach(c=>{ impTurnos[c.dataset.emp]=t; const sl=impLista.querySelector(`select[data-turno="${c.dataset.emp}"]`); if(sl) sl.value=t; });
+}
+async function importarEmpleados(){
+  if(!enLinea()) return;
+  const ids=[...impLista.querySelectorAll('input[data-emp]:checked')].map(c=>c.dataset.emp);
+  if(!ids.length){ toast('Marca al menos un empleado'); return; }
+  const filas=ids.map(id=>{ const e=empleados.find(x=>x.emp_id===id); return {empleado_id:id, nombre:e.nombre, servicio:e.servicio||'', turno:impTurnos[id]||'', activo:true}; });
+  impBtn.disabled=true;
+  const {data,error}=await sb.from('pn_elementos').insert(filas).select();
+  impBtn.disabled=false;
+  if(error){ toast('Error: '+(/duplicate|unique/i.test(error.message)?'alguno ya estaba en la prenómina':error.message)); await cargarEmpleados(); pintarImportar(); return; }
+  elementos=elementos.concat(data); await cargarEmpleados(); cerrar('mImp'); guardarCache(); refrescar();
+  const sinTurno=filas.filter(f=>!f.turno).length;
+  toast(`✔ ${data.length} importados`+(sinTurno?` · ${sinTurno} sin turno (ponlo en Editar)`:''));
+}
 
 /* ================= ELEMENTOS ================= */
 let editId=null;
@@ -652,25 +742,31 @@ function pintarElementos(){
   const q=buscarElem.value||'';
   const ls=elementos.filter(e=>!q||coincide(e.nombre+' '+e.servicio+' '+e.turno,q))
     .sort((a,b)=>(a.servicio||'').localeCompare(b.servicio||'')||a.nombre.localeCompare(b.nombre));
-  listaElem.innerHTML = ls.length ? ls.map(e=>`<div class="item ${e.activo?'':'inactivo'}"><div><b>${resaltar(e.nombre,q)}</b><i>${esc(e.servicio)} · ${esc(e.turno)}${e.activo?'':' · INACTIVO'}</i></div><button class="btn sec mini" onclick="abrirElemento('${e.id}')">Editar</button></div>`).join('')
-    : '<div class="vacio">Sin elementos. Agrega uno o pega tu lista desde Excel.</div>';
+  listaElem.innerHTML = ls.length ? ls.map(e=>{ const emp=empleados.find(x=>x.emp_id===e.empleado_id); return `<div class="item ${e.activo?'':'inactivo'}"><div><b>${resaltar(e.nombre,q)}</b><i>${emp?.numero?'#'+esc(emp.numero)+' · ':''}${esc(e.servicio)} · ${esc(e.turno)||'<span style="color:var(--F)">sin turno</span>'}${e.activo?'':' · INACTIVO'}${e.empleado_id?'':' · ⚠ sin vincular'}</i></div><button class="btn sec mini" onclick="abrirElemento('${e.id}')">Editar</button></div>`; }).join('')
+    : '<div class="vacio">Sin elementos. Toca <b>📥 Importar de Empleados</b> para traerlos de tu lista.</div>';
 }
 function abrirElemento(id){
   editId=id||null; const e=elementos.find(x=>x.id===id)||{nombre:'',servicio:filtroServ!=='Todos'?filtroServ:'',turno:'',activo:true};
   mElemTit.textContent=id?'Editar elemento':'Nuevo elemento';
   eNombre.value=e.nombre; eServicio.value=e.servicio||''; eTurno.value=e.turno||''; eActivo.checked=e.activo;
+  empSel = e.empleado_id ? (empleados.find(x=>x.emp_id===e.empleado_id)||{emp_id:e.empleado_id,nombre:e.nombre}) : null;
+  pintarVinculo();
   eBorrar.style.display=(id&&esAdmin())?'':'none';
   dlServ.innerHTML=(esAdmin()?servicios():(perfil?.servicios||[])).map(x=>`<option value="${esc(x)}">`).join('');
-  sugNombre.classList.remove('on'); abrir('mElem'); setTimeout(()=>eNombre.focus(),100);
+  sugNombre.classList.remove('on'); abrir('mElem'); if(!id) setTimeout(()=>eNombre.focus(),100);
 }
 async function guardarElemento(){
   if(!enLinea()) return;
-  const nombre=eNombre.value.trim(); if(!nombre){ toast('Escribe el nombre'); return; }
+  const nombre=eNombre.value.trim();
+  if(!editId && !empSel){ toast('Busca y elige al empleado de la lista'); eNombre.focus(); return; }
+  if(!nombre){ toast('Falta el nombre'); return; }
   const d={nombre, servicio:eServicio.value.trim(), turno:eTurno.value.trim(), activo:eActivo.checked};
+  if(empSel) d.empleado_id=empSel.emp_id;
   if(!esAdmin() && !(perfil?.servicios||[]).includes(d.servicio)){ toast('Solo puedes usar tus servicios: '+(perfil?.servicios||[]).join(', ')); return; }
   const q = editId ? sb.from('pn_elementos').update(d).eq('id',editId).select().single() : sb.from('pn_elementos').insert(d).select().single();
-  const {data,error}=await q; if(error){ toast('No se guardó: '+error.message); return; }
+  const {data,error}=await q; if(error){ toast('No se guardó: '+(/duplicate|unique/i.test(error.message)?'ese empleado ya está en la prenómina':error.message)); return; }
   if(editId) Object.assign(elementos.find(x=>x.id===editId),data); else elementos.push(data);
+  const emp=empleados.find(x=>x.emp_id===data.empleado_id); if(emp) emp.elemento_id=data.id;
   guardarCache(); cerrar('mElem'); refrescar(); toast('✔ Guardado');
 }
 function borrarElemento(){
@@ -678,16 +774,9 @@ function borrarElemento(){
   confirmar('Eliminar elemento','Se borrará el elemento y TODA su asistencia en Supabase. Si solo ya no trabaja contigo, mejor desmarca "Activo" para conservar su historial.',async()=>{
     const {error}=await sb.from('pn_elementos').delete().eq('id',editId); if(error){ toast('Error: '+error.message); return; }
     elementos=elementos.filter(x=>x.id!==editId); delete asis[editId]; cola=cola.filter(o=>o.id!==editId);
+    empleados.forEach(x=>{ if(x.elemento_id===editId) x.elemento_id=null; });
     guardarCache(); cerrar('mElem'); refrescar();
   });
-}
-async function importarPegado(){
-  if(!enLinea()) return;
-  const filas=txtPegar.value.split(/\r?\n/).map(l=>l.split(/\t|;/).map(s=>s.trim())).filter(r=>r[0]&&!/^nombre$/i.test(r[0]))
-    .map(r=>{ if(/^\d+$/.test(r[0])&&r.length>3) r.shift(); return {nombre:r[0],servicio:r[1]||'',turno:r[2]||'',activo:true}; });
-  if(!filas.length){ toast('No hay filas'); return; }
-  const {data,error}=await sb.from('pn_elementos').insert(filas).select(); if(error){ toast('Error: '+error.message); return; }
-  elementos=elementos.concat(data); txtPegar.value=''; cerrar('mPegar'); guardarCache(); refrescar(); toast(`✔ ${data.length} elementos agregados`);
 }
 
 /* ================= RESUMEN ================= */
