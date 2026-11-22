@@ -70,7 +70,14 @@ table.grid{border-collapse:separate;border-spacing:0;font-size:13px}
 .grid thead .nom{z-index:3;background:#f8fafc}
 .nom b{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .nom i{font-style:normal;font-size:11px;color:var(--sub)}
-.celda{min-width:42px;height:40px;cursor:pointer;font-weight:800;user-select:none;font-size:13px}.celda sub,.paleta sub{font-size:9px;font-weight:700;vertical-align:baseline;margin-left:1px}
+.celda{min-width:42px;height:40px;cursor:pointer;font-weight:800;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;font-size:13px;position:relative}
+.celda.nota::after{content:'';position:absolute;top:0;right:0;border-style:solid;border-width:0 9px 9px 0;border-color:transparent #ef4444 transparent transparent;filter:drop-shadow(0 0 1px #fff)}
+.paleta .notaBtn{background:#fff7ed;color:#9a3412;border:2px dashed #fdba74}
+.paleta .notaBtn.on{border-style:solid;border-color:#0f172a}
+.claveChips{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.claveChips button{border:2px solid transparent;border-radius:8px;padding:6px 8px;font-weight:800;color:#fff;min-width:44px}
+.claveChips button.on{border-color:#0f172a;box-shadow:0 2px 6px rgba(0,0,0,.25)}
+.notaLista .item i{white-space:normal;display:block}.celda sub,.paleta sub{font-size:9px;font-weight:700;vertical-align:baseline;margin-left:1px}
 .tot{font-size:12px;padding:0 6px;background:#f8fafc;font-weight:700}
 .c-A12{background:var(--A);color:#fff}.c-A24{background:var(--A24);color:#fff}.c-TE24{background:var(--TE24);color:#fff}.c-TE12{background:var(--TE);color:#fff}.c-D{background:var(--D);color:#fff}.c-F{background:var(--F);color:#fff}.c-FJ{background:var(--FJ);color:#fff}
 .c-R{background:var(--R);color:#fff}.c-V{background:var(--V);color:#fff}
@@ -159,7 +166,7 @@ header h1 .marca{font-size:11px;font-weight:800;letter-spacing:.18em;color:#7fb6
     </div>
   </div>
   <div class="tablaWrap" id="tablaWrap"></div>
-  <p class="ayuda">Elige una clave abajo y toca las casillas para marcarlas. Toca otra vez con la misma clave para borrar.</p>
+  <p class="ayuda">Elige una clave abajo y toca las casillas para marcarlas. Toca otra vez con la misma clave para borrar.<br>💬 <b>Comentario:</b> mantén presionada una casilla (o usa el botón 💬 Nota) para escribir, por ejemplo, "Cubrió en: Vista Horizonte". Las casillas con comentario llevan un triangulito rojo ◥.</p>
 </section>
 
 <!-- ============ ELEMENTOS ============ -->
@@ -185,6 +192,7 @@ header h1 .marca{font-size:11px;font-weight:800;letter-spacing:.18em;color:#7fb6
   </div>
   <div class="kpis" id="kpis"></div>
   <div class="card" style="overflow:auto" id="resumen"></div>
+  <div class="card lista notaLista" id="resNotas" style="display:none"></div>
   <div class="card">
     <h3 style="margin-top:0">Excel del periodo</h3>
     <div class="fila">
@@ -317,6 +325,29 @@ header h1 .marca{font-size:11px;font-weight:800;letter-spacing:.18em;color:#7fb6
   </div>
 </div>
 
+<!-- Modal nota / comentario de casilla -->
+<div class="modal" id="mNota" onclick="if(event.target===this)cerrar('mNota')">
+  <div class="hoja">
+    <h3>💬 Comentario</h3>
+    <p class="ayuda" id="nTit" style="font-size:14px;margin:0 0 6px"></p>
+    <label>Clave del día</label>
+    <div class="claveChips" id="nClaves"></div>
+    <label>Cubrió en (opcional)</label>
+    <div class="fila">
+      <select id="nServ" style="flex:1"></select>
+      <button class="btn sec mini" onclick="usarCubrio()">Poner</button>
+    </div>
+    <label>Comentario</label>
+    <textarea id="nTxt" rows="3" maxlength="300" placeholder="Ej. Cubrió en: Residencial Vista Horizonte (turno de día)"></textarea>
+    <div class="fila" style="margin-top:12px">
+      <button class="btn" onclick="guardarNota()">Guardar</button>
+      <button class="btn sec" onclick="cerrar('mNota')">Cancelar</button>
+      <span style="flex:1"></span>
+      <button class="btn peligro" id="nBorrar" onclick="borrarNota()">Quitar comentario</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal confirmar -->
 <div class="modal" id="mConf">
   <div class="hoja">
@@ -377,7 +408,8 @@ const K_CACHE='pn_cache', K_COLA='pn_cola', K_SB='pn_sb';
 /* ================= ESTADO ================= */
 let sb=null, usuario=null, perfil=null, usuarios=[], empleados=[];
 let elementos=[];          // [{id,nombre,servicio,turno,activo}]
-let asis={};               // asis[elemento_id][YYYY-MM-DD] = clave
+let asis={};
+let notas={};              // notas[elemento_id][YYYY-MM-DD] = comentario               // asis[elemento_id][YYYY-MM-DD] = clave
 let cfg={empresa:'SEPRO SEGURIDAD PRIVADA', refA:fmt(new Date())};
 let cola=leerLS(K_COLA,[]); // cambios pendientes de subir: {id,f,v}
 let tipo=leerLS('pn_tipo','Q');
@@ -385,7 +417,7 @@ let ancla=new Date(), filtroServ='Todos', claveSel='A24', sincronizando=false, r
 
 function leerLS(k,def){ try{ const v=JSON.parse(localStorage.getItem(k)); return v??def; }catch(e){ return def; } }
 function escribirLS(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} }
-function guardarCache(){ escribirLS(K_CACHE,{elementos,asis,cfg,perfil}); escribirLS(K_COLA,cola); }
+function guardarCache(){ escribirLS(K_CACHE,{elementos,asis,notas,cfg,perfil}); escribirLS(K_COLA,cola); }
 const esAdmin=()=>perfil?.rol==='admin';
 function enLinea(){ if(!sb||!usuario){ toast('Necesitas iniciar sesión (con internet) para esto'); return false; } return true; }
 function horasTurno(e){ return /24/.test((e&&e.turno)||'') ? 24 : 12; }
@@ -454,7 +486,7 @@ async function entrar(){
 async function salir(){
   confirmar('Cerrar sesión', cola.length?`Hay ${cola.length} cambios sin subir. Si cierras sesión se perderán.`:'Se cerrará la sesión en este celular.', async()=>{
     try{ await sb.auth.signOut(); }catch(e){}
-    cola=[]; elementos=[]; asis={}; usuario=null; perfil=null; usuarios=[]; aplicarPermisos(); localStorage.removeItem(K_CACHE); escribirLS(K_COLA,[]);
+    cola=[]; elementos=[]; asis={}; notas={}; usuario=null; perfil=null; usuarios=[]; aplicarPermisos(); localStorage.removeItem(K_CACHE); escribirLS(K_COLA,[]);
     refrescar(); mostrarLogin();
   });
 }
@@ -463,7 +495,7 @@ async function despuesDeEntrar(){
   if(pe && !/fetch|network/i.test(pe.message)){ toast('Error de permisos: '+pe.message); }
   if(!pe && (!p || !p.activo)){
     try{ await sb.auth.signOut(); }catch(e){}
-    usuario=null; perfil=null; elementos=[]; asis={}; localStorage.removeItem(K_CACHE); refrescar();
+    usuario=null; perfil=null; elementos=[]; asis={}; notas={}; localStorage.removeItem(K_CACHE); refrescar();
     mostrarLogin(); lgErr.textContent='Tu correo no está autorizado en Prenómina. Pide al administrador que te dé de alta.'; return;
   }
   if(p) perfil=p;
@@ -497,7 +529,7 @@ async function sincronizarTodo(){
 async function leerAsistencia(desde,hasta){ // trae todo en páginas de 1000
   let todo=[], i=0;
   while(true){
-    const {data,error}=await sb.from('pn_asistencia').select('elemento_id,fecha,clave').gte('fecha',desde).lte('fecha',hasta).order('fecha').range(i,i+999);
+    const {data,error}=await sb.from('pn_asistencia').select('elemento_id,fecha,clave,nota').gte('fecha',desde).lte('fecha',hasta).order('fecha').range(i,i+999);
     if(error) throw error;
     todo=todo.concat(data); if(data.length<1000) break; i+=1000;
   }
@@ -509,8 +541,9 @@ async function cargarAsistencia(){
   try{
     const filas=await leerAsistencia(fmt(ini),fmt(fin));
     const fechas=new Set(dias.map(fmt));
-    Object.values(asis).forEach(r=>Object.keys(r).forEach(f=>{ if(fechas.has(f)) delete r[f]; }));
-    filas.forEach(x=>{ (asis[x.elemento_id]=asis[x.elemento_id]||{})[x.fecha]=x.clave; });
+    [asis,notas].forEach(m=>Object.values(m).forEach(r=>Object.keys(r).forEach(f=>{ if(fechas.has(f)) delete r[f]; })));
+    filas.forEach(x=>{ (asis[x.elemento_id]=asis[x.elemento_id]||{})[x.fecha]=x.clave;
+      if(x.nota) (notas[x.elemento_id]=notas[x.elemento_id]||{})[x.fecha]=x.nota; });
     cola.forEach(op=>aplicarLocal(op)); // lo pendiente del celular manda
     rangoCargado=clave; guardarCache(); estadoSync();
   }catch(e){ estadoSync('off','Sin conexión'); }
@@ -520,8 +553,9 @@ function escucharCambios(){
   if(window._canal) sb.removeChannel(window._canal);
   window._canal=sb.channel('prenomina')
     .on('postgres_changes',{event:'*',schema:'public',table:'pn_asistencia'},p=>{
-      if(p.eventType==='DELETE'){ const o=p.old; if(asis[o.elemento_id]) delete asis[o.elemento_id][o.fecha]; }
-      else { const n=p.new; (asis[n.elemento_id]=asis[n.elemento_id]||{})[n.fecha]=n.clave; }
+      if(p.eventType==='DELETE'){ const o=p.old; if(asis[o.elemento_id]) delete asis[o.elemento_id][o.fecha]; if(notas[o.elemento_id]) delete notas[o.elemento_id][o.fecha]; }
+      else { const n=p.new; (asis[n.elemento_id]=asis[n.elemento_id]||{})[n.fecha]=n.clave;
+        notas[n.elemento_id]=notas[n.elemento_id]||{}; if(n.nota) notas[n.elemento_id][n.fecha]=n.nota; else delete notas[n.elemento_id][n.fecha]; }
       cola.forEach(op=>aplicarLocal(op)); guardarCache(); pintarGrid(); pintarResumen();
     })
     .on('postgres_changes',{event:'*',schema:'public',table:'pn_elementos'},()=>sincronizarTodo())
@@ -529,19 +563,29 @@ function escucharCambios(){
 }
 
 /* ================= SUPABASE: ESCRITURA (con cola sin internet) ================= */
-function aplicarLocal(op){ asis[op.id]=asis[op.id]||{}; if(op.v) asis[op.id][op.f]=op.v; else delete asis[op.id][op.f]; }
-function marcar(id,f,v){ const op={id,f,v}; cola.push(op); aplicarLocal(op); guardarCache(); estadoSync(); programarSubida(); }
+function aplicarLocal(op){
+  asis[op.id]=asis[op.id]||{}; notas[op.id]=notas[op.id]||{};
+  if(op.v) asis[op.id][op.f]=op.v; else { delete asis[op.id][op.f]; delete notas[op.id][op.f]; }
+  if(op.v && op.n!==undefined){ if(op.n) notas[op.id][op.f]=op.n; else delete notas[op.id][op.f]; }
+}
+function marcar(id,f,v,n){ const op={id,f,v}; if(n!==undefined) op.n=n; cola.push(op); aplicarLocal(op); guardarCache(); estadoSync(); programarSubida(); }
 let tSubida; function programarSubida(){ clearTimeout(tSubida); tSubida=setTimeout(subirCola,600); }
 async function subirCola(){
   if(!sb||!usuario||sincronizando||!cola.length){ estadoSync(); return; }
   sincronizando=true; estadoSync();
   const n=cola.length, ultimo={};
-  cola.slice(0,n).forEach(op=>ultimo[op.id+'|'+op.f]=op);
-  const ups=[], dels=[];
-  Object.values(ultimo).forEach(op=> op.v ? ups.push({elemento_id:op.id,fecha:op.f,clave:op.v}) : dels.push(op));
+  cola.slice(0,n).forEach(op=>{ const k=op.id+'|'+op.f, prev=ultimo[k];
+    const m={...op}; if(m.n===undefined && prev && prev.v && op.v && prev.n!==undefined) m.n=prev.n; // conserva el comentario pendiente
+    ultimo[k]=m; });
+  const ups=[], upsN=[], dels=[];
+  Object.values(ultimo).forEach(op=>{
+    if(!op.v) dels.push(op);
+    else if(op.n!==undefined) upsN.push({elemento_id:op.id,fecha:op.f,clave:op.v,nota:op.n||null});
+    else ups.push({elemento_id:op.id,fecha:op.f,clave:op.v});
+  });
   try{
-    for(let i=0;i<ups.length;i+=500){
-      const {error}=await sb.from('pn_asistencia').upsert(ups.slice(i,i+500),{onConflict:'elemento_id,fecha'}); if(error) throw error;
+    for(const lote of [ups,upsN]) for(let i=0;i<lote.length;i+=500){ // separados: sin "nota" no se borra el comentario
+      const {error}=await sb.from('pn_asistencia').upsert(lote.slice(i,i+500),{onConflict:'elemento_id,fecha'}); if(error) throw error;
     }
     for(const op of dels){ const {error}=await sb.from('pn_asistencia').delete().eq('elemento_id',op.id).eq('fecha',op.f); if(error) throw error; }
     cola.splice(0,n); guardarCache();
@@ -599,20 +643,76 @@ function pintarGrid(){
   els.forEach(e=>{
     const reg=asis[e.id]||{}; const t=contar(e.id,dias);
     h+=`<tr><td class="nom"><b>${esc(e.nombre)}</b><i>${esc(e.servicio)} · ${esc(e.turno)}</i></td>`;
-    dias.forEach(d=>{ const f=fmt(d), v=reg[f]||''; h+=`<td class="celda ${v?'c-'+v:''}" data-id="${e.id}" data-f="${f}">${etiqueta(v)}</td>`; });
+    const nreg=notas[e.id]||{};
+    dias.forEach(d=>{ const f=fmt(d), v=reg[f]||'', nt=nreg[f]; h+=`<td class="celda ${v?'c-'+v:''} ${nt?'nota':''}" data-id="${e.id}" data-f="${f}"${nt?` title="${esc(nt)}"`:''}>${etiqueta(v)}</td>`; });
     h+=`<td class="tot" style="color:var(--A24)">${t.horas}</td><td class="tot" style="color:var(--F)">${t.F}</td><td class="tot">${t.D}</td></tr>`;
   });
   const sl=w.scrollLeft, st=w.scrollTop; w.innerHTML=h+'</tbody></table>'; w.scrollLeft=sl; w.scrollTop=st;
 }
+let tPres=null, presAbierto=false;
+document.addEventListener('pointerdown',ev=>{
+  const c=ev.target.closest('.celda'); if(!c) return; presAbierto=false;
+  clearTimeout(tPres); tPres=setTimeout(()=>{ presAbierto=true; if(navigator.vibrate) try{navigator.vibrate(30);}catch(e){} abrirNota(c.dataset.id,c.dataset.f); },550);
+});
+['pointerup','pointercancel','pointerleave'].forEach(t=>document.addEventListener(t,()=>clearTimeout(tPres)));
+document.addEventListener('scroll',()=>clearTimeout(tPres),true);
+document.addEventListener('contextmenu',ev=>{ const c=ev.target.closest('.celda'); if(!c) return; ev.preventDefault(); if(!presAbierto) abrirNota(c.dataset.id,c.dataset.f); });
 document.addEventListener('click',ev=>{
   const c=ev.target.closest('.celda'); if(!c) return;
+  if(presAbierto){ presAbierto=false; return; }
   const id=c.dataset.id, f=c.dataset.f, actual=(asis[id]||{})[f];
+  if(claveSel==='NOTA'){ abrirNota(id,f); return; }
+  if((claveSel===''||actual===claveSel) && (notas[id]||{})[f]){
+    confirmar('Borrar casilla','Esta casilla tiene un comentario: "'+notas[id][f]+'". Si la borras, también se borra el comentario.',()=>{ marcar(id,f,null); pintarGrid(); });
+    return;
+  }
   marcar(id,f, (claveSel===''||actual===claveSel)?null:claveSel);
   pintarGrid();
 });
+
+/* ---- Comentarios de casilla ---- */
+let notaSel=null, notaClave='';
+function abrirNota(id,f){
+  const e=elementos.find(x=>x.id===id); if(!e) return;
+  notaSel={id,f}; notaClave=(asis[id]||{})[f]|| (claveSel&&claveSel!=='NOTA'?claveSel:'');
+  const d=parse(f);
+  nTit.innerHTML=`<b>${esc(e.nombre)}</b><br>${DIAS[d.getDay()]} ${d.getDate()} ${MESES[d.getMonth()]} ${d.getFullYear()} · ${esc(e.servicio)}`;
+  pintarNotaClaves();
+  const servs=[...new Set([...servicios(),...empleados.map(x=>x.servicio).filter(Boolean)])].sort();
+  nServ.innerHTML='<option value="">Elegir servicio…</option>'+servs.filter(x=>x!==e.servicio).map(x=>`<option>${esc(x)}</option>`).join('');
+  nTxt.value=(notas[id]||{})[f]||''; nBorrar.style.display=nTxt.value?'':'none';
+  abrir('mNota');
+}
+function pintarNotaClaves(){
+  nClaves.innerHTML=CLAVES.map(k=>`<button class="c-${k.c} ${notaClave===k.c?'on':''}" onclick="notaClave='${k.c}';pintarNotaClaves()">${etiqueta(k.c)}</button>`).join('');
+}
+function usarCubrio(){
+  if(!nServ.value){ toast('Elige el servicio'); return; }
+  const txt='Cubrió en: '+nServ.value;
+  nTxt.value = nTxt.value.trim() ? txt+' · '+nTxt.value.replace(/^Cubrió en: [^·]*(· )?/,'').trim() : txt;
+  nTxt.value=nTxt.value.replace(/ · $/,'');
+  if(!notaClave){ notaClave='TE24'; pintarNotaClaves(); toast('Puse TE24 (cubre 24 h); cámbialo si fue de 12 h'); }
+}
+function guardarNota(){
+  const txt=nTxt.value.trim().slice(0,300);
+  if(!notaClave){ toast('Elige también la clave del día (ej. TE24)'); return; }
+  marcar(notaSel.id,notaSel.f,notaClave,txt);
+  cerrar('mNota'); pintarGrid(); pintarResumen(); toast(txt?'✔ Comentario guardado':'✔ Guardado');
+}
+function borrarNota(){
+  const v=(asis[notaSel.id]||{})[notaSel.f]||notaClave;
+  if(v) marcar(notaSel.id,notaSel.f,v,'');
+  cerrar('mNota'); pintarGrid(); pintarResumen(); toast('✔ Comentario quitado');
+}
+function notasDelPeriodo(dias,fuenteN){
+  const N=fuenteN||notas, fs=dias.map(fmt), out=[];
+  elementos.forEach(e=>{ const r=N[e.id]||{}; fs.forEach(f=>{ if(r[f]) out.push({e,f,nota:r[f]}); }); });
+  return out.sort((a,b)=>a.f.localeCompare(b.f)||a.e.nombre.localeCompare(b.e.nombre));
+}
 function pintarPaleta(){
   paleta.innerHTML=CLAVES.map(k=>`<button class="c-${k.c} ${claveSel===k.c?'on':''}" onclick="claveSel='${k.c}';pintarPaleta()"><span>${etiqueta(k.c)}</span><small>${k.s||k.n}</small></button>`).join('')
-    +`<button class="borra ${claveSel===''?'on':''}" onclick="claveSel='';pintarPaleta()">✕<small>Borrar</small></button>`;
+    +`<button class="borra ${claveSel===''?'on':''}" onclick="claveSel='';pintarPaleta()">✕<small>Borrar</small></button>`
+    +`<button class="notaBtn ${claveSel==='NOTA'?'on':''}" onclick="claveSel='NOTA';pintarPaleta();toast('Toca una casilla para escribir su comentario')">💬<small>Nota</small></button>`;
   leyenda.innerHTML=CLAVES.map(k=>`<div class="fila" style="margin:5px 0"><span class="c-${k.c}" style="min-width:40px;text-align:center;border-radius:6px;padding:3px;font-weight:800">${etiqueta(k.c)}</span> ${k.n}${k.h?' <span class="ayuda" style="margin:0">(cuenta como trabajado)</span>':''}</div>`).join('');
 }
 function prellenar(){
@@ -799,17 +899,23 @@ function pintarResumen(){
     h+=`<tr><td>${esc(e.nombre)}<br><span class="ayuda">${esc(e.turno)}</span></td>`+CLAVES.map(k=>`<td style="${t[k.c]&&(k.c==='F'||k.c==='FJ')?'color:var(--F);font-weight:700':''}">${t[k.c]||''}</td>`).join('')+`<td><b>${t.horas}</b></td></tr>`;
   });
   resumen.innerHTML=h+'</tbody></table>';
+  const ns=notasDelPeriodo(dias);
+  resNotas.style.display=ns.length?'':'none';
+  resNotas.innerHTML='<h3 style="margin:0 0 4px">💬 Comentarios del periodo</h3>'+ns.map(x=>{ const d=parse(x.f); const v=(asis[x.e.id]||{})[x.f]||'';
+    return `<div class="item"><span class="c-${v}" style="min-width:40px;text-align:center;border-radius:6px;padding:3px;font-weight:800">${etiqueta(v)}</span><div><b>${esc(x.e.nombre)}</b><i>${DIAS[d.getDay()]} ${d.getDate()} ${MESES[d.getMonth()]} · ${esc(x.nota)}</i></div></div>`; }).join('');
 }
 function copiarResumen(){
   const {dias}=rango(); let t=`*PRENÓMINA ${cfg.empresa}*\n${txtRango()}\n`; let serv=null;
   filasResumen(dias).forEach(({e,t:c})=>{ if(e.servicio!==serv){serv=e.servicio;t+=`\n*${serv||'Sin servicio'}*\n`;}
     t+=`• ${e.nombre} (${e.turno}): ${c.horas} h (${c.A24?c.A24+'×24h ':''}${c.A12?c.A12+'×12h':''})${c.F?`, ${c.F} faltas`:''}${c.FJ?`, ${c.FJ} faltas just.`:''}${c.TE24?`, cubrió ${c.TE24}×24h`:''}${c.TE12?`, cubrió ${c.TE12}×12h`:''}${c.R?`, ${c.R} retardos`:''}${c.V?`, ${c.V} vac.`:''}${c.I?`, ${c.I} incap.`:''}${c.P?`, ${c.P} perm.`:''}\n`; });
+  const ns=notasDelPeriodo(dias);
+  if(ns.length){ t+='\n*Comentarios*\n'; ns.forEach(x=>{ const d=parse(x.f); t+=`• ${d.getDate()} ${MESES[d.getMonth()]} · ${x.e.nombre} (${(asis[x.e.id]||{})[x.f]||''}): ${x.nota}\n`; }); }
   navigator.clipboard.writeText(t).then(()=>toast('✔ Copiado, pégalo en WhatsApp')).catch(()=>toast('No se pudo copiar'));
 }
 
 /* ================= EXCEL ================= */
-function libroExcel(ini,fin,fuente,titulo){
-  const dias=diasEntre(ini,fin); const src=fuente||asis; const rows=filasResumen(dias,src);
+function libroExcel(ini,fin,fuente,titulo,fuenteN){
+  const dias=diasEntre(ini,fin); const src=fuente||asis; const N=fuenteN||(fuente?{}:notas); const rows=filasResumen(dias,src);
   const enc=['No','Nombre','Servicio','Turno',...dias.map(d=>`${String(d.getDate()).padStart(2,'0')} ${DIAS[d.getDay()]}`),...CLAVES.map(k=>k.c),'Turnos trabajados','Horas trabajadas'];
   const data=[[`PRENÓMINA - ${cfg.empresa}`],[titulo||txtFechas(ini,fin)],[],enc];
   rows.forEach(({e,t},i)=>{ const reg=src[e.id]||{}; data.push([i+1,e.nombre,e.servicio,e.turno,...dias.map(d=>reg[fmt(d)]||''),...CLAVES.map(k=>t[k.c]),t.trab,t.horas]); });
@@ -817,10 +923,17 @@ function libroExcel(ini,fin,fuente,titulo){
   const ws=XLSX.utils.aoa_to_sheet(data);
   ws['!cols']=[{wch:4},{wch:28},{wch:18},{wch:10},...dias.map(()=>({wch:7})),...CLAVES.map(()=>({wch:5})),{wch:16},{wch:15}];
   ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:6}},{s:{r:1,c:0},e:{r:1,c:6}}];
+  // Comentarios como en Excel (triangulito rojo en la celda)
+  const listaN=[];
+  rows.forEach(({e},i)=>{ const r=N[e.id]||{}; dias.forEach((d,j)=>{ const f=fmt(d); if(!r[f]) return;
+    const addr=XLSX.utils.encode_cell({r:4+i,c:4+j}); if(!ws[addr]) ws[addr]={t:'s',v:''};
+    ws[addr].c=[{a:'Prenómina',t:r[f]}]; ws[addr].c.hidden=true;
+    listaN.push([`${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`,e.nombre,e.servicio,src[e.id]?.[f]||'',r[f]]); }); });
   const porServ={}; rows.forEach(({e,t})=>{ const s=e.servicio||'Sin servicio'; const p=porServ[s]=porServ[s]||{n:0,trab:0,horas:0,F:0,TE:0}; p.n++;p.trab+=t.trab;p.horas+=t.horas;p.F+=t.F;p.TE+=t.TE; });
   const ws2=XLSX.utils.aoa_to_sheet([['Servicio','Elementos','Turnos trabajados','Horas trabajadas','Faltas','Turnos cubiertos'],...Object.entries(porServ).map(([s,p])=>[s,p.n,p.trab,p.horas,p.F,p.TE])]);
   ws2['!cols']=[{wch:24},{wch:10},{wch:17},{wch:16},{wch:8},{wch:16}];
   const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Prenómina'); XLSX.utils.book_append_sheet(wb,ws2,'Por servicio');
+  if(listaN.length){ const ws3=XLSX.utils.aoa_to_sheet([['Fecha','Elemento','Servicio','Clave','Comentario'],...listaN]); ws3['!cols']=[{wch:11},{wch:28},{wch:22},{wch:6},{wch:50}]; XLSX.utils.book_append_sheet(wb,ws3,'Comentarios'); }
   return {wb,nombre:`Prenomina_${fmt(ini)}_al_${fmt(fin)}.xlsx`};
 }
 function hayXLSX(){ if(typeof XLSX==='undefined'){ toast('Sin conexión: no cargó el módulo de Excel'); return false; } return true; }
@@ -832,9 +945,9 @@ async function exportarRango(){
   if((fin-ini)/864e5>92){ toast('Máximo 3 meses por archivo'); return; }
   try{
     toast('Descargando de Supabase…'); await subirCola();
-    const filas=await leerAsistencia(exDesde.value,exHasta.value); const src={};
-    filas.forEach(x=>{ (src[x.elemento_id]=src[x.elemento_id]||{})[x.fecha]=x.clave; });
-    const {wb,nombre}=libroExcel(ini,fin,src); XLSX.writeFile(wb,nombre); toast('✔ Excel descargado');
+    const filas=await leerAsistencia(exDesde.value,exHasta.value); const src={}, srcN={};
+    filas.forEach(x=>{ (src[x.elemento_id]=src[x.elemento_id]||{})[x.fecha]=x.clave; if(x.nota) (srcN[x.elemento_id]=srcN[x.elemento_id]||{})[x.fecha]=x.nota; });
+    const {wb,nombre}=libroExcel(ini,fin,src,null,srcN); XLSX.writeFile(wb,nombre); toast('✔ Excel descargado');
   }catch(e){ toast('Necesitas internet para este reporte'); }
 }
 async function compartirExcel(){
@@ -960,7 +1073,7 @@ function refrescar(){
   pintarChips(); pintarGrid(); pintarElementos(); pintarResumen();
 }
 (function iniciar(){
-  const c=leerLS(K_CACHE,null); if(c){ elementos=c.elementos||[]; asis=c.asis||{}; cfg=Object.assign(cfg,c.cfg||{}); perfil=c.perfil||null; }
+  const c=leerLS(K_CACHE,null); if(c){ elementos=c.elementos||[]; asis=c.asis||{}; notas=c.notas||{}; cfg=Object.assign(cfg,c.cfg||{}); perfil=c.perfil||null; }
   pintarLogos(); tipoPeriodo.value=tipo; pintarCfg(); aplicarPermisos(); pintarPaleta(); refrescar(); estadoSync();
   arrancar();
 })();
