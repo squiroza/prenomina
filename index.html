@@ -66,8 +66,16 @@ table.grid{border-collapse:separate;border-spacing:0;font-size:13px}
 .grid thead th{position:sticky;top:0;background:#f8fafc;z-index:2;font-size:11px;padding:5px 2px;min-width:38px;color:var(--sub)}
 .grid thead th.hoy{background:#dbeafe;color:var(--azul2)}
 .grid thead th.dom{color:#b91c1c}
-.grid .nom{position:sticky;left:0;background:#fff;z-index:1;text-align:left;padding:6px 8px;min-width:150px;max-width:170px}
-.grid thead .nom{z-index:3;background:#f8fafc}
+.grid .nom{position:sticky;left:0;background:#fff;z-index:1;text-align:left;padding:6px 8px;width:var(--nomW,160px);min-width:var(--nomW,160px);max-width:var(--nomW,160px)}
+.grid thead .nom{z-index:3;background:#f8fafc;user-select:none}
+.grid thead .nom .tirador{position:absolute;top:0;right:-7px;width:16px;height:100%;cursor:col-resize;touch-action:none;display:flex;align-items:center;justify-content:center;z-index:4}
+.grid thead .nom .tirador::before{content:'';width:4px;height:60%;border-radius:3px;background:var(--azul2);opacity:.55}
+.grid thead .nom .tirador:active::before,.grid thead .nom .tirador.arrastrando::before{opacity:1;background:#f59e0b}
+.grid thead .nom .ancho{font-size:10px;color:var(--azul2);font-weight:700;margin-left:4px;cursor:pointer}
+.grid.amplio .nom b{white-space:normal;overflow:visible}
+.celda.bloq{background:repeating-linear-gradient(135deg,#f1f5f9 0 6px,#e2e8f0 6px 12px);cursor:not-allowed}
+.tagBaja{display:inline-block;font-size:10px;font-weight:800;color:#fff;background:#64748b;border-radius:4px;padding:1px 5px;margin-left:4px;vertical-align:middle;font-style:normal}
+tr.baja .nom b{color:#64748b}
 .nom b{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .nom i{font-style:normal;font-size:11px;color:var(--sub)}
 .celda{min-width:42px;height:40px;cursor:pointer;font-weight:800;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;font-size:13px;position:relative}
@@ -272,7 +280,12 @@ header h1 .marca{font-size:11px;font-weight:800;letter-spacing:.18em;color:#7fb6
     <div id="eVinculo" class="ayuda" style="margin-top:6px"></div>
     <label>Servicio</label><input id="eServicio" list="dlServ" placeholder="Ej. Fortaleza">
     <label>Turno</label><input id="eTurno" list="dlTurno" placeholder="Ej. 24x24 A">
-    <label><input type="checkbox" id="eActivo" style="width:auto"> Activo (aparece en la asistencia)</label>
+    <label><input type="checkbox" id="eActivo" style="width:auto" onchange="pintarBajaCampo()"> Activo (aparece en la asistencia)</label>
+    <div id="boxBaja" style="display:none">
+      <label>Fecha de baja (último día que aparece en la prenómina)</label>
+      <input type="date" id="eBaja">
+      <p class="ayuda">Seguirá apareciendo en Asistencia hasta ese día; los días posteriores quedan bloqueados.</p>
+    </div>
     <div class="fila" style="margin-top:14px">
       <button class="btn" onclick="guardarElemento()">Guardar</button>
       <button class="btn sec" onclick="cerrar('mElem')">Cancelar</button>
@@ -520,7 +533,7 @@ async function sincronizarTodo(){
   await cargarEmpleados();
   try{
     const [el,cf]=await Promise.all([
-      sb.from('pn_elementos').select('id,nombre,servicio,turno,activo,empleado_id').order('nombre'),
+      sb.from('pn_elementos').select('id,nombre,servicio,turno,activo,empleado_id,fecha_baja').order('nombre'),
       sb.from('pn_config').select('empresa,ref_a').eq('id',1).maybeSingle()
     ]);
     if(el.error) throw el.error;
@@ -618,9 +631,13 @@ function resaltar(texto,q){
   let out='',abierto=false; [...texto].forEach((ch,i)=>{ if(marcas[i]&&!abierto){out+='<mark>';abierto=true;} if(!marcas[i]&&abierto){out+='</mark>';abierto=false;} out+=esc(ch); });
   return out+(abierto?'</mark>':'');
 }
+function fechaCorta(f){ const d=parse(f); return `${d.getDate()} ${MESES[d.getMonth()]}`; }
+function bloqueado(e,f){ return !e.activo && e.fecha_baja && f>e.fecha_baja; }
+function visibleEn(e,ini){ return e.activo || (e.fecha_baja && e.fecha_baja>=fmt(ini)); }
 function activos(){
+  const {ini}=rango();
   const q=buscar.value||'';
-  return elementos.filter(e=>e.activo && (filtroServ==='Todos'||e.servicio===filtroServ) && (!q||coincide(e.nombre+' '+e.servicio+' '+e.turno,q)))
+  return elementos.filter(e=>visibleEn(e,ini) && (filtroServ==='Todos'||e.servicio===filtroServ) && (!q||coincide(e.nombre+' '+e.servicio+' '+e.turno,q)))
     .sort((a,b)=>(a.servicio||'').localeCompare(b.servicio||'')||a.nombre.localeCompare(b.nombre));
 }
 function servicios(){ return [...new Set(elementos.map(e=>e.servicio).filter(Boolean))].sort(); }
@@ -641,29 +658,43 @@ function pintarGrid(){
   const {dias}=rango(); const hoy=fmt(new Date()); const els=activos(); const w=tablaWrap;
   if(!elementos.length){ w.innerHTML='<div class="vacio">Aún no hay elementos.<br><br><button class="btn" onclick="verVista(document.querySelector(\'[data-v=v-elem]\'))">＋ Dar de alta elementos</button></div>'; return; }
   if(!els.length){ w.innerHTML='<div class="vacio">No hay elementos con ese filtro.</div>'; return; }
-  let h='<table class="grid"><thead><tr><th class="nom">Elemento</th>';
+  let h=`<table class="grid ${nomW>=240?'amplio':''}"><thead><tr><th class="nom">Elemento <span class="ancho" onclick="alternarAncho()">${nomW>=240?'⇤':'⇥'}</span><span class="tirador" title="Desliza para ver el nombre completo"></span></th>`;
   dias.forEach(d=>{ const f=fmt(d); h+=`<th class="${f===hoy?'hoy':''} ${d.getDay()===0?'dom':''}">${String(d.getDate()).padStart(2,'0')}<br>${DIAS[d.getDay()]}</th>`; });
   h+='<th>Hrs</th><th>F</th><th>D</th></tr></thead><tbody>';
   els.forEach(e=>{
     const reg=asis[e.id]||{}; const t=contar(e.id,dias);
-    h+=`<tr><td class="nom"><b>${esc(e.nombre)}</b><i>${esc(e.servicio)} · ${esc(e.turno)}</i></td>`;
+    const baja=!e.activo&&e.fecha_baja;
+    h+=`<tr class="${baja?'baja':''}"><td class="nom" title="${esc(e.nombre)}"><b>${esc(e.nombre)}</b><i>${esc(e.servicio)} · ${esc(e.turno)}${baja?`<span class="tagBaja">BAJA ${fechaCorta(e.fecha_baja)}</span>`:''}</i></td>`;
     const nreg=notas[e.id]||{};
-    dias.forEach(d=>{ const f=fmt(d), v=reg[f]||'', nt=nreg[f]; h+=`<td class="celda ${v?'c-'+v:''} ${nt?'nota':''}" data-id="${e.id}" data-f="${f}"${nt?` title="${esc(nt)}"`:''}>${etiqueta(v)}</td>`; });
+    dias.forEach(d=>{ const f=fmt(d), v=reg[f]||'', nt=nreg[f], bl=bloqueado(e,f);
+      h+=`<td class="celda ${v?'c-'+v:''} ${nt?'nota':''} ${bl&&!v?'bloq':''}" data-id="${e.id}" data-f="${f}"${bl?' data-bloq="1"':''}${nt?` title="${esc(nt)}"`:''}>${etiqueta(v)}</td>`; });
     h+=`<td class="tot" style="color:var(--A24)">${t.horas}</td><td class="tot" style="color:var(--F)">${t.F}</td><td class="tot">${t.D}</td></tr>`;
   });
-  const sl=w.scrollLeft, st=w.scrollTop; w.innerHTML=h+'</tbody></table>'; w.scrollLeft=sl; w.scrollTop=st;
+  const sl=w.scrollLeft, st=w.scrollTop; w.innerHTML=h+'</tbody></table>'; aplicarAncho(); w.scrollLeft=sl; w.scrollTop=st;
 }
+/* ---- Columna de nombre corrediza ---- */
+let nomW=+leerLS('pn_nomW',160)||160;
+function aplicarAncho(){ tablaWrap.style.setProperty('--nomW',nomW+'px'); const g=tablaWrap.querySelector('.grid'); if(g) g.classList.toggle('amplio',nomW>=240); const a=tablaWrap.querySelector('.ancho'); if(a) a.textContent=nomW>=240?'⇤':'⇥'; }
+function alternarAncho(){ nomW = nomW>=240 ? 160 : Math.min(340,Math.max(260,window.innerWidth*0.7|0)); escribirLS('pn_nomW',nomW); aplicarAncho(); }
+document.addEventListener('pointerdown',ev=>{
+  const t=ev.target.closest('.tirador'); if(!t) return; ev.preventDefault();
+  const x0=ev.clientX, w0=nomW; t.classList.add('arrastrando'); try{t.setPointerCapture(ev.pointerId);}catch(e){}
+  const mover=e2=>{ nomW=Math.min(380,Math.max(110,w0+e2.clientX-x0)); aplicarAncho(); };
+  const soltar=()=>{ t.classList.remove('arrastrando'); escribirLS('pn_nomW',nomW); t.removeEventListener('pointermove',mover); t.removeEventListener('pointerup',soltar); t.removeEventListener('pointercancel',soltar); };
+  t.addEventListener('pointermove',mover); t.addEventListener('pointerup',soltar); t.addEventListener('pointercancel',soltar);
+});
 let tPres=null, presAbierto=false;
 document.addEventListener('pointerdown',ev=>{
-  const c=ev.target.closest('.celda'); if(!c) return; presAbierto=false;
+  const c=ev.target.closest('.celda'); if(!c||c.dataset.bloq) return; presAbierto=false;
   clearTimeout(tPres); tPres=setTimeout(()=>{ presAbierto=true; if(navigator.vibrate) try{navigator.vibrate(30);}catch(e){} abrirNota(c.dataset.id,c.dataset.f); },550);
 });
 ['pointerup','pointercancel','pointerleave'].forEach(t=>document.addEventListener(t,()=>clearTimeout(tPres)));
 document.addEventListener('scroll',()=>clearTimeout(tPres),true);
-document.addEventListener('contextmenu',ev=>{ const c=ev.target.closest('.celda'); if(!c) return; ev.preventDefault(); if(!presAbierto) abrirNota(c.dataset.id,c.dataset.f); });
+document.addEventListener('contextmenu',ev=>{ const c=ev.target.closest('.celda'); if(!c||c.dataset.bloq) return; ev.preventDefault(); if(!presAbierto) abrirNota(c.dataset.id,c.dataset.f); });
 document.addEventListener('click',ev=>{
   const c=ev.target.closest('.celda'); if(!c) return;
   if(presAbierto){ presAbierto=false; return; }
+  if(c.dataset.bloq){ const e=elementos.find(x=>x.id===c.dataset.id); toast(`🚫 Causó baja el ${fechaCorta(e.fecha_baja)}. Para capturar este día cambia su fecha de baja en Elementos.`); return; }
   const id=c.dataset.id, f=c.dataset.f, actual=(asis[id]||{})[f];
   if(claveSel==='NOTA'){ abrirNota(id,f); return; }
   if((claveSel===''||actual===claveSel) && (notas[id]||{})[f]){
@@ -746,7 +777,7 @@ function prellenar(){
     activos().forEach(e=>{
       const t=(e.turno||'').toUpperCase().replace(/\s+/g,' '); const reg=asis[e.id]||{};
       dias.forEach(d=>{
-        const f=fmt(d); if(reg[f]) return; let v='';
+        const f=fmt(d); if(reg[f]||bloqueado(e,f)) return; let v='';
         if(/24X24|12X36/.test(t)){ const dif=Math.round((d-ref)/864e5); const par=((dif%2)+2)%2===0; const grupoB=/\bB$/.test(t);
           v=(par!==grupoB)?(/24X24/.test(t)?'A24':'A12'):'D'; }
         else if(/12X12/.test(t)) v='A12';
@@ -868,25 +899,26 @@ function pintarElementos(){
   const q=buscarElem.value||'';
   const ls=elementos.filter(e=>!q||coincide(e.nombre+' '+e.servicio+' '+e.turno,q))
     .sort((a,b)=>(a.servicio||'').localeCompare(b.servicio||'')||a.nombre.localeCompare(b.nombre));
-  listaElem.innerHTML = ls.length ? ls.map(e=>{ const emp=empleados.find(x=>x.emp_id===e.empleado_id); return `<div class="item ${e.activo?'':'inactivo'}"><div><b>${resaltar(e.nombre,q)}</b><i>${emp?.numero?'#'+esc(emp.numero)+' · ':''}${esc(e.servicio)} · ${esc(e.turno)||'<span style="color:var(--F)">sin turno</span>'}${e.activo?'':' · INACTIVO'}${e.empleado_id?'':' · ⚠ sin vincular'}</i></div><button class="btn sec mini" onclick="abrirElemento('${e.id}')">Editar</button></div>`; }).join('')
+  listaElem.innerHTML = ls.length ? ls.map(e=>{ const emp=empleados.find(x=>x.emp_id===e.empleado_id); return `<div class="item ${e.activo?'':'inactivo'}"><div><b>${resaltar(e.nombre,q)}</b><i>${emp?.numero?'#'+esc(emp.numero)+' · ':''}${esc(e.servicio)} · ${esc(e.turno)||'<span style="color:var(--F)">sin turno</span>'}${e.activo?'':(e.fecha_baja?` · <span class="tagBaja">BAJA ${fechaCorta(e.fecha_baja)}</span>`:' · INACTIVO')}${e.empleado_id?'':' · ⚠ sin vincular'}</i></div><button class="btn sec mini" onclick="abrirElemento('${e.id}')">Editar</button></div>`; }).join('')
     : '<div class="vacio">Sin elementos. Toca <b>📥 Importar de Empleados</b> para traerlos de tu lista.</div>';
 }
 function abrirElemento(id){
   editId=id||null; const e=elementos.find(x=>x.id===id)||{nombre:'',servicio:filtroServ!=='Todos'?filtroServ:'',turno:'',activo:true};
   mElemTit.textContent=id?'Editar elemento':'Nuevo elemento';
-  eNombre.value=e.nombre; eServicio.value=e.servicio||''; eTurno.value=e.turno||''; eActivo.checked=e.activo;
+  eNombre.value=e.nombre; eServicio.value=e.servicio||''; eTurno.value=e.turno||''; eActivo.checked=e.activo; eBaja.value=e.fecha_baja||''; pintarBajaCampo();
   empSel = e.empleado_id ? (empleados.find(x=>x.emp_id===e.empleado_id)||{emp_id:e.empleado_id,nombre:e.nombre}) : null;
   pintarVinculo();
   eBorrar.style.display=(id&&esAdmin())?'':'none';
   dlServ.innerHTML=(esAdmin()?servicios():(perfil?.servicios||[])).map(x=>`<option value="${esc(x)}">`).join('');
   sugNombre.classList.remove('on'); abrir('mElem'); if(!id) setTimeout(()=>eNombre.focus(),100);
 }
+function pintarBajaCampo(){ boxBaja.style.display=eActivo.checked?'none':''; if(!eActivo.checked&&!eBaja.value) eBaja.value=fmt(new Date()); }
 async function guardarElemento(){
   if(!enLinea()) return;
   const nombre=eNombre.value.trim();
   if(!editId && !empSel){ toast('Busca y elige al empleado de la lista'); eNombre.focus(); return; }
   if(!nombre){ toast('Falta el nombre'); return; }
-  const d={nombre, servicio:eServicio.value.trim(), turno:eTurno.value.trim(), activo:eActivo.checked};
+  const d={nombre, servicio:eServicio.value.trim(), turno:eTurno.value.trim(), activo:eActivo.checked, fecha_baja:eActivo.checked?null:(eBaja.value||fmt(new Date()))};
   if(empSel) d.empleado_id=empSel.emp_id;
   if(!esAdmin() && !(perfil?.servicios||[]).includes(d.servicio)){ toast('Solo puedes usar tus servicios: '+(perfil?.servicios||[]).join(', ')); return; }
   const q = editId ? sb.from('pn_elementos').update(d).eq('id',editId).select().single() : sb.from('pn_elementos').insert(d).select().single();
@@ -908,20 +940,20 @@ function borrarElemento(){
 /* ================= RESUMEN ================= */
 function filasResumen(dias,fuente){
   const fs=new Set(dias.map(fmt)); const src=fuente||asis;
-  return elementos.filter(e=>e.activo || Object.keys(src[e.id]||{}).some(f=>fs.has(f)))
+  return elementos.filter(e=>visibleEn(e,dias[0]) || Object.keys(src[e.id]||{}).some(f=>fs.has(f)))
     .sort((a,b)=>(a.servicio||'').localeCompare(b.servicio||'')||a.nombre.localeCompare(b.nombre))
     .map(e=>({e,t:contar(e.id,dias,src)}));
 }
 function pintarResumen(){
   const {dias}=rango(); const rows=filasResumen(dias);
   const tot={horas:0,F:0,TE:0}; rows.forEach(r=>{tot.horas+=r.t.horas;tot.F+=r.t.F;tot.TE+=r.t.TE;});
-  const sin=rows.reduce((s,r)=>s+dias.length-CLAVES.reduce((a,k)=>a+r.t[k.c],0),0);
+  const sin=rows.reduce((s,r)=>s+dias.filter(d=>!bloqueado(r.e,fmt(d))).length-CLAVES.reduce((a,k)=>a+r.t[k.c],0),0);
   kpis.innerHTML=`<div class="kpi"><b style="color:var(--A24)">${tot.horas}</b><span>Horas trab.</span></div><div class="kpi"><b style="color:var(--F)">${tot.F}</b><span>Faltas</span></div><div class="kpi"><b style="color:var(--TE)">${tot.TE}</b><span>Coberturas</span></div><div class="kpi"><b style="color:var(--sub)">${sin}</b><span>Sin marcar</span></div>`;
   if(!rows.length){ resumen.innerHTML='<div class="vacio">Sin datos en este periodo.</div>'; return; }
   let h='<table class="sumTabla"><thead><tr><th>Elemento</th>'+CLAVES.map(k=>`<th>${etiqueta(k.c)}</th>`).join('')+'<th>Hrs</th></tr></thead><tbody>'; let serv=null;
   rows.forEach(({e,t})=>{
     if(e.servicio!==serv){ serv=e.servicio; h+=`<tr><td colspan="${CLAVES.length+2}" style="background:#f1f5f9;font-weight:700">${esc(serv||'Sin servicio')}</td></tr>`; }
-    h+=`<tr><td>${esc(e.nombre)}<br><span class="ayuda">${esc(e.turno)}</span></td>`+CLAVES.map(k=>`<td style="${t[k.c]&&(k.c==='F'||k.c==='FJ')?'color:var(--F);font-weight:700':''}">${t[k.c]||''}</td>`).join('')+`<td><b>${t.horas}</b></td></tr>`;
+    h+=`<tr><td>${esc(e.nombre)}<br><span class="ayuda">${esc(e.turno)}</span>${!e.activo&&e.fecha_baja?`<span class="tagBaja">BAJA ${fechaCorta(e.fecha_baja)}</span>`:''}</td>`+CLAVES.map(k=>`<td style="${t[k.c]&&(k.c==='F'||k.c==='FJ')?'color:var(--F);font-weight:700':''}">${t[k.c]||''}</td>`).join('')+`<td><b>${t.horas}</b></td></tr>`;
   });
   resumen.innerHTML=h+'</tbody></table>';
   const ns=notasDelPeriodo(dias);
@@ -941,12 +973,12 @@ function copiarResumen(){
 /* ================= EXCEL ================= */
 function libroExcel(ini,fin,fuente,titulo,fuenteN){
   const dias=diasEntre(ini,fin); const src=fuente||asis; const N=fuenteN||(fuente?{}:notas); const rows=filasResumen(dias,src);
-  const enc=['No','Nombre','Servicio','Turno',...dias.map(d=>`${String(d.getDate()).padStart(2,'0')} ${DIAS[d.getDay()]}`),...CLAVES.map(k=>k.c),'Turnos trabajados','Horas trabajadas'];
+  const enc=['No','Nombre','Servicio','Turno',...dias.map(d=>`${String(d.getDate()).padStart(2,'0')} ${DIAS[d.getDay()]}`),...CLAVES.map(k=>k.c),'Turnos trabajados','Horas trabajadas','Baja'];
   const data=[[`PRENÓMINA - ${cfg.empresa}`],[titulo||txtFechas(ini,fin)],[],enc];
-  rows.forEach(({e,t},i)=>{ const reg=src[e.id]||{}; data.push([i+1,e.nombre,e.servicio,e.turno,...dias.map(d=>reg[fmt(d)]||''),...CLAVES.map(k=>t[k.c]),t.trab,t.horas]); });
+  rows.forEach(({e,t},i)=>{ const reg=src[e.id]||{}; data.push([i+1,e.nombre,e.servicio,e.turno,...dias.map(d=>reg[fmt(d)]||(bloqueado(e,fmt(d))?'—':'')),...CLAVES.map(k=>t[k.c]),t.trab,t.horas,(!e.activo&&e.fecha_baja)?e.fecha_baja.split('-').reverse().join('/'):'']); });
   data.push([]); data.push(['Claves:',CLAVES.map(k=>`${k.c}=${k.n}`).join('   ')]);
   const ws=XLSX.utils.aoa_to_sheet(data);
-  ws['!cols']=[{wch:4},{wch:28},{wch:18},{wch:10},...dias.map(()=>({wch:7})),...CLAVES.map(()=>({wch:5})),{wch:16},{wch:15}];
+  ws['!cols']=[{wch:4},{wch:28},{wch:18},{wch:10},...dias.map(()=>({wch:7})),...CLAVES.map(()=>({wch:5})),{wch:16},{wch:15},{wch:11}];
   ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:6}},{s:{r:1,c:0},e:{r:1,c:6}}];
   // Comentarios como en Excel (triangulito rojo en la celda)
   const listaN=[];
