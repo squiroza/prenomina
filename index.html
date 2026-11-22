@@ -71,6 +71,9 @@ table.grid{border-collapse:separate;border-spacing:0;font-size:13px}
 .nom b{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .nom i{font-style:normal;font-size:11px;color:var(--sub)}
 .celda{min-width:42px;height:40px;cursor:pointer;font-weight:800;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;font-size:13px;position:relative}
+.celda.flash{animation:flash 1.6s ease-out 1}
+@keyframes flash{0%,40%{box-shadow:inset 0 0 0 3px #facc15;filter:brightness(1.15)}100%{box-shadow:none}}
+#btnDeshacer:disabled{opacity:.45}
 .celda.nota::after{content:'';position:absolute;top:0;right:0;border-style:solid;border-width:0 9px 9px 0;border-color:transparent #ef4444 transparent transparent;filter:drop-shadow(0 0 1px #fff)}
 .paleta .notaBtn{background:#fff7ed;color:#9a3412;border:2px dashed #fdba74}
 .paleta .notaBtn.on{border-style:solid;border-color:#0f172a}
@@ -157,12 +160,13 @@ header h1 .marca{font-size:11px;font-weight:800;letter-spacing:.18em;color:#7fb6
     </div>
     <div class="chips" id="chipsServ"></div>
     <div class="fila" style="margin-top:8px">
-      <div class="buscador">
+      <div class="buscador" style="flex:1 1 100%">
         <input id="buscar" type="search" placeholder="🔍 Buscar elemento… (ej. sam)" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="search">
         <button class="limpiar" id="buscarX" onclick="limpiarBusqueda()">✕</button>
         <div class="sugerencias" id="sugBuscar"></div>
       </div>
-      <button class="btn sec mini" onclick="prellenar()">⚡ Prellenar</button>
+      <button class="btn sec mini" style="flex:1" onclick="prellenar()">⚡ Prellenar</button>
+      <button class="btn sec mini" style="flex:1" id="btnDeshacer" onclick="deshacer()" disabled>↶ Deshacer</button>
     </div>
   </div>
   <div class="tablaWrap" id="tablaWrap"></div>
@@ -486,7 +490,7 @@ async function entrar(){
 async function salir(){
   confirmar('Cerrar sesión', cola.length?`Hay ${cola.length} cambios sin subir. Si cierras sesión se perderán.`:'Se cerrará la sesión en este celular.', async()=>{
     try{ await sb.auth.signOut(); }catch(e){}
-    cola=[]; elementos=[]; asis={}; notas={}; usuario=null; perfil=null; usuarios=[]; aplicarPermisos(); localStorage.removeItem(K_CACHE); escribirLS(K_COLA,[]);
+    cola=[]; elementos=[]; asis={}; notas={}; historial=[]; usuario=null; perfil=null; usuarios=[]; aplicarPermisos(); localStorage.removeItem(K_CACHE); escribirLS(K_COLA,[]);
     refrescar(); mostrarLogin();
   });
 }
@@ -663,12 +667,31 @@ document.addEventListener('click',ev=>{
   const id=c.dataset.id, f=c.dataset.f, actual=(asis[id]||{})[f];
   if(claveSel==='NOTA'){ abrirNota(id,f); return; }
   if((claveSel===''||actual===claveSel) && (notas[id]||{})[f]){
-    confirmar('Borrar casilla','Esta casilla tiene un comentario: "'+notas[id][f]+'". Si la borras, también se borra el comentario.',()=>{ marcar(id,f,null); pintarGrid(); });
+    confirmar('Borrar casilla','Esta casilla tiene un comentario: "'+notas[id][f]+'". Si la borras, también se borra el comentario.',()=>{ guardarHist([foto(id,f)]); marcar(id,f,null); pintarGrid(); });
     return;
   }
+  guardarHist([foto(id,f)]);
   marcar(id,f, (claveSel===''||actual===claveSel)?null:claveSel);
   pintarGrid();
 });
+
+/* ---- Deshacer ---- */
+let historial=[];
+function foto(id,f){ return {id,f,v:(asis[id]||{})[f]||null,n:(notas[id]||{})[f]||''}; }
+function guardarHist(fotos){ historial.push(fotos); if(historial.length>100) historial.shift(); pintarDeshacer(); }
+function pintarDeshacer(){ btnDeshacer.disabled=!historial.length; btnDeshacer.textContent=historial.length?`↶ Deshacer (${historial.length})`:'↶ Deshacer'; }
+function deshacer(){
+  const fotos=historial.pop(); if(!fotos){ pintarDeshacer(); return; }
+  fotos.forEach(x=>marcar(x.id,x.f,x.v, x.v? x.n : undefined));
+  pintarGrid(); pintarResumen(); pintarDeshacer();
+  if(fotos.length===1){
+    const x=fotos[0], e=elementos.find(y=>y.id===x.id), d=parse(x.f);
+    toast(`↶ ${e?e.nombre.split(' ').slice(0,2).join(' '):''} · ${DIAS[d.getDay()]} ${d.getDate()} ${MESES[d.getMonth()]} → ${x.v||'vacía'}`);
+    const c=document.querySelector(`.celda[data-id="${x.id}"][data-f="${x.f}"]`);
+    if(c){ c.scrollIntoView({block:'nearest',inline:'center',behavior:'smooth'}); c.classList.add('flash'); }
+    else toast('↶ Deshecho (ese día no está en el periodo que ves)');
+  } else toast(`↶ Deshecho: ${fotos.length} casillas`);
+}
 
 /* ---- Comentarios de casilla ---- */
 let notaSel=null, notaClave='';
@@ -696,12 +719,13 @@ function usarCubrio(){
 function guardarNota(){
   const txt=nTxt.value.trim().slice(0,300);
   if(!notaClave){ toast('Elige también la clave del día (ej. TE24)'); return; }
+  guardarHist([foto(notaSel.id,notaSel.f)]);
   marcar(notaSel.id,notaSel.f,notaClave,txt);
   cerrar('mNota'); pintarGrid(); pintarResumen(); toast(txt?'✔ Comentario guardado':'✔ Guardado');
 }
 function borrarNota(){
   const v=(asis[notaSel.id]||{})[notaSel.f]||notaClave;
-  if(v) marcar(notaSel.id,notaSel.f,v,'');
+  if(v){ guardarHist([foto(notaSel.id,notaSel.f)]); marcar(notaSel.id,notaSel.f,v,''); }
   cerrar('mNota'); pintarGrid(); pintarResumen(); toast('✔ Comentario quitado');
 }
 function notasDelPeriodo(dias,fuenteN){
@@ -718,7 +742,7 @@ function pintarPaleta(){
 function prellenar(){
   const {dias}=rango(); const ref=parse(cfg.refA||fmt(new Date()));
   confirmar('Prellenar según turno','Se llenarán solo las casillas vacías de los elementos que ves en pantalla: 24x24 con A24 y 12x36 con A12 alternando con D según la fecha del grupo A (en Ajustes); 12x12 con A12 todos los días. Después corriges a mano.',()=>{
-    let n=0;
+    let n=0; const fotos=[];
     activos().forEach(e=>{
       const t=(e.turno||'').toUpperCase().replace(/\s+/g,' '); const reg=asis[e.id]||{};
       dias.forEach(d=>{
@@ -726,9 +750,10 @@ function prellenar(){
         if(/24X24|12X36/.test(t)){ const dif=Math.round((d-ref)/864e5); const par=((dif%2)+2)%2===0; const grupoB=/\bB$/.test(t);
           v=(par!==grupoB)?(/24X24/.test(t)?'A24':'A12'):'D'; }
         else if(/12X12/.test(t)) v='A12';
-        if(v){ cola.push({id:e.id,f,v}); aplicarLocal({id:e.id,f,v}); n++; }
+        if(v){ fotos.push(foto(e.id,f)); cola.push({id:e.id,f,v}); aplicarLocal({id:e.id,f,v}); n++; }
       });
     });
+    if(fotos.length) guardarHist(fotos);
     guardarCache(); programarSubida(); pintarGrid(); estadoSync(); toast(`✔ ${n} casillas prellenadas`);
   });
 }
